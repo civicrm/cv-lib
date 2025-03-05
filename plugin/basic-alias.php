@@ -38,7 +38,9 @@ use Civi\Cv\Cv;
 use Civi\Cv\CvEvent;
 use CvDeps\Symfony\Component\Console\Output\OutputInterface;
 
-if (empty($CV_PLUGIN['protocol']) || $CV_PLUGIN['protocol'] > 1) die("Expect CV_PLUGIN API v1");
+if (empty($CV_PLUGIN['protocol']) || $CV_PLUGIN['protocol'] > 1) {
+  die("Expect CV_PLUGIN API v1");
+}
 
 Cv::dispatcher()->addListener('*.app.site-alias', function(CvEvent $event) {
   foreach (AliasFinder::find($event['alias']) as $file) {
@@ -47,16 +49,30 @@ Cv::dispatcher()->addListener('*.app.site-alias', function(CvEvent $event) {
   }
 });
 
+Cv::dispatcher()->addListener('*.app.site-alias.list', function(CvEvent $event) {
+  foreach (AliasFinder::find('*') as $file) {
+    $name = preg_replace('/\.(json|yaml)/', '', basename($file));
+    $event['aliases'][] = [
+      'name' => $name,
+      'type' => 'basic',
+      'config' => $file,
+      'getter' => function () use ($file) {
+        return AliasFinder::read($file);
+      },
+    ];
+  }
+});
+
 /**
  * Find and read alias configurations.
  */
 class AliasFinder {
+
   public static function find(string $nameOrWildcard): iterable {
     yield from [];
-    $dirs = array_map('dirname', Cv::plugins()->getPaths());
-    foreach ($dirs as $dir) {
+    foreach (static::getFolders() as $dir) {
       foreach (['yaml', 'json'] as $type) {
-        $pat = "$dir/alias/$nameOrWildcard.$type";
+        $pat = "$dir/$nameOrWildcard.$type";
         $files = (array) glob($pat);
         foreach ($files as $file) {
           yield $file;
@@ -64,6 +80,18 @@ class AliasFinder {
       }
     }
   }
+
+  public static function getFolders(): array {
+    $dirs = ['/etc/cv/alias', '/usr/local/share/cv/alias', '/usr/share/cv/alias'];
+    if (getenv('HOME')) {
+      array_unshift($dirs, getenv('HOME') . '/.cv/alias');
+    }
+    elseif (getenv('USERPROFILE')) {
+      array_unshift($dirs, getenv('USERPROFILE') . '/.cv/alias');
+    }
+    return $dirs;
+  }
+
   public static function read(string $file): array {
     if (preg_match(';\.ya?ml$;', $file)) {
       if (!is_callable('yaml_parse')) {
@@ -83,6 +111,7 @@ class AliasFinder {
     }
     return $parsed;
   }
+
 }
 
 class ShellAliasHandler {
@@ -180,9 +209,8 @@ class ShellAliasHandler {
     );
     return proc_close($process);
   }
+
 }
-
-
 
 function escapeString(string $expr): string {
   return preg_match('{^[\w=-]+$}', $expr) ? $expr : escapeshellarg($expr);
